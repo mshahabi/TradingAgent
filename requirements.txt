@@ -1,0 +1,9 @@
+pandas
+numpy
+yfinance
+matplotlib
+mplfinance
+python-dotenv
+mplfinance
+TA-Lib
+pandas_market_calendars
