@@ -7,3 +7,6 @@ python-dotenv
 mplfinance
 TA-Lib
 pandas_market_calendars
+ib_insync
+streamlit
+plotly
