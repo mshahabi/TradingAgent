@@ -54,7 +54,7 @@ cover/
 # Translations
 *.mo
 *.pot
-
+*.xml
 # Django stuff:
 *.log
 local_settings.py
@@ -170,3 +170,4 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 .DS_Store
+archives/*

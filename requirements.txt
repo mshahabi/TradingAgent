@@ -10,3 +10,7 @@ pandas_market_calendars
 ib_insync
 streamlit
 plotly
+black
+isort
+ta
+sklearn
