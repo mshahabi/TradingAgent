@@ -11,7 +11,7 @@ The `TradingAgent` project is a Python-based framework for developing, testing, 
 - **Historical Data Retrieval**: Fetch historical market data using the IB API.
 - **Backtesting**: Test trading strategies on historical data to evaluate performance.
 - **Trading Strategies**: Implement and test custom trading strategies, such as micro pullbacks.
-- **Visualization**: Plot trading signals, volume, and VWAP using `mplfinance`.
+- **Visualization**: Plot trading signals, volume, and VWAP using `mplfinance` or `plotly`.
 - **Performance Metrics**: Calculate win rate, total profit, and average trade return.
 - **Thread Synchronization**: Handle API requests and responses efficiently using threading.
 
