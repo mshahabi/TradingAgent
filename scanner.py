@@ -1,35 +1,50 @@
-from ibapi.client import EClient
-from ibapi.wrapper import EWrapper
-from ibapi.scanner import ScannerSubscription, ScanData
-import time
-import threading
 import os
+import threading
+import time
 from datetime import datetime
+
+from ibapi.client import EClient
+from ibapi.scanner import ScanData, ScannerSubscription
+from ibapi.wrapper import EWrapper
+
 
 class TradingApp(EClient, EWrapper):
     def __init__(self):
         EClient.__init__(self, self)  # Initialize EClient with self as the wrapper
         self.scanned_data = []  # List to store scanned data
+
     def scannerParameters(self, xml):
         super().scannerParameters(xml)
-        open('scanner_parameters.xml', 'w').write(xml)
+        open("scanner_parameters.xml", "w").write(xml)
         print("XML parameters received")
 
-    def scannerData(self, reqId, rank, contractDetails, distance, benchmark, projection, legsStr):
-        super().scannerData(reqId, rank, contractDetails, distance, benchmark, projection, legsStr)
-        print("Scanner Data retrieved:", reqId, ScanData(contractDetails.contract, rank, distance, benchmark, projection, legsStr))
+    def scannerData(
+        self, reqId, rank, contractDetails, distance, benchmark, projection, legsStr
+    ):
+        super().scannerData(
+            reqId, rank, contractDetails, distance, benchmark, projection, legsStr
+        )
+        print(
+            "Scanner Data retrieved:",
+            reqId,
+            ScanData(
+                contractDetails.contract, rank, distance, benchmark, projection, legsStr
+            ),
+        )
         data = {
-                "timestamp": datetime.now(),
-                "reqId": reqId,
-                "rank": rank,
-                "contract": contractDetails.contract,
-                "distance": distance,
-                "benchmark": benchmark,
-                "projection": projection,
-                "legsStr": legsStr
-            }
+            "timestamp": datetime.now(),
+            "reqId": reqId,
+            "rank": rank,
+            "contract": contractDetails.contract,
+            "distance": distance,
+            "benchmark": benchmark,
+            "projection": projection,
+            "legsStr": legsStr,
+        }
         self.scanned_data.append(data)
         print("Scanner Data retrieved:", data)
+
+
 # Create an instance of the app and connect to IB Gateway / TWS
 def customStockScan():
     scan_obj = ScannerSubscription()
@@ -44,8 +59,10 @@ def customStockScan():
     scan_obj.stockTypeFilter = "ALL"
     return scan_obj
 
+
 def websocket_con():
     app.run()
+
 
 app = TradingApp()
 app.connect("127.0.0.1", 7497, clientId=1)

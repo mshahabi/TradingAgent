@@ -1,5 +1,6 @@
-
 from ibapi.contract import Contract
+
+
 # Define contract function
 def usTechStk(symbol, sec_type="STK", currency="USD", exchange="SMART"):
     """
@@ -19,7 +20,8 @@ def usTechStk(symbol, sec_type="STK", currency="USD", exchange="SMART"):
     contract.secType = sec_type
     contract.currency = currency
     contract.exchange = exchange
-    return contract 
+    return contract
+
 
 # Request historical data
 def histData(app, req_num, contract, endDate, duration, candle_size):
@@ -37,13 +39,15 @@ def histData(app, req_num, contract, endDate, duration, candle_size):
     Returns:
         None: The function sends a request to fetch historical data but does not return any value.
     """
-    app.reqHistoricalData(reqId=req_num, 
-                          contract=contract,
-                          endDateTime=endDate,
-                          durationStr=duration,
-                          barSizeSetting=candle_size,
-                          whatToShow='TRADES',
-                          useRTH=0, # for historical data, useRTH=0 to get pre & after hours data
-                          formatDate=1,
-                          keepUpToDate=0,
-                          chartOptions=[]) 
+    app.reqHistoricalData(
+        reqId=req_num,
+        contract=contract,
+        endDateTime=endDate,
+        durationStr=duration,
+        barSizeSetting=candle_size,
+        whatToShow="TRADES",
+        useRTH=0,  # for historical data, useRTH=0 to get pre & after hours data
+        formatDate=1,
+        keepUpToDate=0,
+        chartOptions=[],
+    )

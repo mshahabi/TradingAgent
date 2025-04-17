@@ -1,10 +1,12 @@
-import streamlit as st
-import pandas as pd
-from ibapi.client import EClient
-from ibapi.wrapper import EWrapper
-from ibapi.contract import Contract
 import threading
 import time
+
+import pandas as pd
+import streamlit as st
+from ibapi.client import EClient
+from ibapi.contract import Contract
+from ibapi.wrapper import EWrapper
+
 
 class TradeApp(EWrapper, EClient):
     def __init__(self):
@@ -13,22 +15,30 @@ class TradeApp(EWrapper, EClient):
         self.data_event = threading.Event()
 
     def historicalData(self, reqId, bar):
-        new_data = pd.DataFrame([{
-            "Date": bar.date,
-            "Open": bar.open,
-            "High": bar.high,
-            "Low": bar.low,
-            "Close": bar.close,
-            "Volume": bar.volume
-        }])
+        new_data = pd.DataFrame(
+            [
+                {
+                    "Date": bar.date,
+                    "Open": bar.open,
+                    "High": bar.high,
+                    "Low": bar.low,
+                    "Close": bar.close,
+                    "Volume": bar.volume,
+                }
+            ]
+        )
 
         if reqId not in self.hist_data or len(self.hist_data[reqId]) == 0:
             self.hist_data[reqId] = new_data
         else:
-            self.hist_data[reqId] = pd.concat([self.hist_data[reqId], new_data], ignore_index=True)
+            self.hist_data[reqId] = pd.concat(
+                [self.hist_data[reqId], new_data], ignore_index=True
+            )
 
-    def historicalDataEnd(self, reqId, startDateStr, endDateStr):  
-        print(f"Historical data fetch completed for ReqId: {reqId}, Start: {startDateStr}, End: {endDateStr}")
+    def historicalDataEnd(self, reqId, startDateStr, endDateStr):
+        print(
+            f"Historical data fetch completed for ReqId: {reqId}, Start: {startDateStr}, End: {endDateStr}"
+        )
         self.data_event.set()  # Signal that data fetching is complete
 
     def check_connection(self):
@@ -37,6 +47,7 @@ class TradeApp(EWrapper, EClient):
     def stop_connection(self):
         self.disconnect()
 
+
 def usStk(symbol, sec_type="STK", currency="USD", exchange="SMART"):
     contract = Contract()
     contract.symbol = symbol
@@ -44,6 +55,7 @@ def usStk(symbol, sec_type="STK", currency="USD", exchange="SMART"):
     contract.currency = currency
     contract.exchange = exchange
     return contract
+
 
 def fetch_historical_data(app, symbol):
     if not app.check_connection():
@@ -54,25 +66,29 @@ def fetch_historical_data(app, symbol):
     app.reqHistoricalData(
         reqId=1,
         contract=contract,
-        endDateTime='',
+        endDateTime="",
         durationStr="1 D",
         barSizeSetting="5 mins",
-        whatToShow='TRADES',
+        whatToShow="TRADES",
         useRTH=1,
         formatDate=1,
         keepUpToDate=False,
-        chartOptions=[]
+        chartOptions=[],
     )
     app.data_event.wait()  # Wait for the data fetching to complete
     app.data_event.clear()
 
+
 def start_ibkr_connection(app):
     app.run()
 
+
 if __name__ == "__main__":
+
     def initialize_ibkr_connection():
         app = TradeApp()
         import random
+
         unique_client_id = random.randint(1000, 9999)  # Generate a unique client ID
         app.connect("127.0.0.1", 7497, clientId=unique_client_id)
 
@@ -92,7 +108,9 @@ if __name__ == "__main__":
 
     if fetch_button:
         with st.spinner("Fetching data..."):
-            data_thread = threading.Thread(target=fetch_historical_data, args=(app, symbol))
+            data_thread = threading.Thread(
+                target=fetch_historical_data, args=(app, symbol)
+            )
             data_thread.start()
             data_thread.join()  # Wait for the data fetching thread to complete
 

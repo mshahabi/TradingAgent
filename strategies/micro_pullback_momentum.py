@@ -1,20 +1,21 @@
-from data.data_fetcher import histData, usTechStk
-from strategies.micro_pull_back_ema import compute_micro_pullback_ema_strategy
-from strategies.micro_pull_back_breakout import compute_breakout_signal
-from strategies.stockastic_bolinger_bands import compute_stochastic_bollinger_band
-from strategies.micro_pullback import compute_micro_pullback
-
-import pandas as pd
-from typing import Dict, List, Tuple
+import collections
 import threading
 from datetime import datetime
-from utils import compute_daily_vwap
-import ta
+from typing import Dict, List, Tuple
+
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LinearRegression
+import ta
 from scipy.stats import entropy
-import collections
+from sklearn.linear_model import LinearRegression
+
+from data.data_fetcher import histData, usTechStk
+from strategies.micro_pull_back_breakout import compute_breakout_signal
+from strategies.micro_pull_back_ema import compute_micro_pullback_ema_strategy
+from strategies.micro_pullback import compute_micro_pullback
+from strategies.stockastic_bolinger_bands import \
+    compute_stochastic_bollinger_band
+from utils import compute_daily_vwap
 
 # def compute_stochastic_bollinger_band(data: pd.DataFrame) -> pd.DataFrame:
 #     data = data.copy()
@@ -81,6 +82,7 @@ import collections
 
 #     return data[['DateTime', 'StochBollingerEntry']]
 
+
 def compute_profit_hunter_signals(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
@@ -91,76 +93,81 @@ def compute_profit_hunter_signals(df: pd.DataFrame) -> pd.DataFrame:
         e4 = e3.ewm(span=length, adjust=False).mean()
         e5 = e4.ewm(span=length, adjust=False).mean()
         e6 = e5.ewm(span=length, adjust=False).mean()
-        c1 = -vfactor ** 3
-        c2 = 3 * vfactor ** 2 + 3 * vfactor ** 3
-        c3 = -6 * vfactor ** 2 - 3 * vfactor - 3 * vfactor ** 3
-        c4 = 1 + 3 * vfactor + vfactor ** 3 + 3 * vfactor ** 2
+        c1 = -(vfactor**3)
+        c2 = 3 * vfactor**2 + 3 * vfactor**3
+        c3 = -6 * vfactor**2 - 3 * vfactor - 3 * vfactor**3
+        c4 = 1 + 3 * vfactor + vfactor**3 + 3 * vfactor**2
         return c1 * e6 + c2 * e5 + c3 * e4 + c4 * e3
 
-    df['T3Short'] = t3_ma(df['Close'], length=5)
-    df['T3Long'] = t3_ma(df['Close'], length=8)
-    df['T3Crossover'] = (df['T3Short'] > df['T3Long']) & (df['T3Short'].shift(1) <= df['T3Long'].shift(1))
+    df["T3Short"] = t3_ma(df["Close"], length=5)
+    df["T3Long"] = t3_ma(df["Close"], length=8)
+    df["T3Crossover"] = (df["T3Short"] > df["T3Long"]) & (
+        df["T3Short"].shift(1) <= df["T3Long"].shift(1)
+    )
 
-    high = df['High']
-    low = df['Low']
-    close = df['Close']
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"]
     plus_dm = high.diff()
     minus_dm = low.diff().abs()
-    tr = pd.concat([
-        high - low,
-        (high - close.shift()).abs(),
-        (low - close.shift()).abs()
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1
+    ).max(axis=1)
 
     atr = tr.rolling(14).mean()
     plus_di = 100 * (plus_dm.rolling(14).sum() / atr)
     minus_di = 100 * (minus_dm.rolling(14).sum() / atr)
     dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
     adx = dx.rolling(14).mean()
-    df['ADX_Strong'] = adx > 40  # raised from 25 to 30
+    df["ADX_Strong"] = adx > 40  # raised from 25 to 30
 
-    ma20 = df['Close'].rolling(20).mean()
-    std20 = df['Close'].rolling(20).std()
+    ma20 = df["Close"].rolling(20).mean()
+    std20 = df["Close"].rolling(20).std()
     upper_bb = ma20 + 2 * std20
     lower_bb = ma20 - 2 * std20
-    typical_price = (df['High'] + df['Low'] + df['Close']) / 3
-    tr_k = (df['High'] - df['Low']).rolling(20).mean()
+    typical_price = (df["High"] + df["Low"] + df["Close"]) / 3
+    tr_k = (df["High"] - df["Low"]).rolling(20).mean()
     upper_kc = typical_price.rolling(20).mean() + 1.5 * tr_k
     lower_kc = typical_price.rolling(20).mean() - 1.5 * tr_k
-    df['BollKelt_Breakout'] = (upper_bb > upper_kc) & (lower_bb < lower_kc)
+    df["BollKelt_Breakout"] = (upper_bb > upper_kc) & (lower_bb < lower_kc)
 
     # Combine
-    df['ProfitHunterRaw'] = (
-        df['T3Crossover'] &
-        df['ADX_Strong'] &
-        df['BollKelt_Breakout']
+    df["ProfitHunterRaw"] = (
+        df["T3Crossover"] & df["ADX_Strong"] & df["BollKelt_Breakout"]
     )
 
     # Final signal: momentum + volume + VWAP positioning + cooldown
-    df['ProfitHunter'] = (
-        df['ProfitHunterRaw'] &
-        #df['StrongMomentum'] &
-        (df['Volume'] > df['Volume'].rolling(80).mean() * 3) &  # volume spike
-        (df['Close'] > df['VWAP']) & # price above VWAP
-          (df['Close'] > df['Close'].shift(1)) 
+    df["ProfitHunter"] = (
+        df["ProfitHunterRaw"]
+        &
+        # df['StrongMomentum'] &
+        (df["Volume"] > df["Volume"].rolling(80).mean() * 3)  # volume spike
+        & (df["Close"] > df["VWAP"])  # price above VWAP
+        & (df["Close"] > df["Close"].shift(1))
     )
-    return df[['DateTime', 'ProfitHunter']]
+    return df[["DateTime", "ProfitHunter"]]
+
 
 def backtest(
-    selected_stocks: Dict[str, List[str]], 
-    app, 
-    ticker_event: threading.Event
+    selected_stocks: Dict[str, List[str]], app, ticker_event: threading.Event
 ) -> Tuple[Dict[str, Dict[str, Dict[str, float]]], List[Tuple[str, str, str, float]]]:
 
     date_stats = {}
-    transactions = collections.defaultdict(list)    
+    transactions = collections.defaultdict(list)
     reqID = 1000
 
     for date in selected_stocks.keys():
         date_stats[date] = {}
         for ticker in selected_stocks[date]:
             ticker_event.clear()
-            histData(app, reqID, usTechStk(ticker), date + " 22:05:00 US/Eastern", '5 D', '1 min')
+            histData(
+                app,
+                reqID,
+                usTechStk(ticker),
+                date + " 22:05:00 US/Eastern",
+                "5 D",
+                "1 min",
+            )
             ticker_event.wait()
 
             if reqID not in app.data or app.data[reqID].empty:
@@ -169,19 +176,23 @@ def backtest(
 
             df = app.data[reqID].copy()
 
-            df['Volume'] = df['Volume'].astype(float)
-            df['DateTime'] = pd.to_datetime(df['Date'].str.replace(' US/Eastern', '', regex=False))
-            df['DateOnly'] = df['DateTime'].dt.date
+            df["Volume"] = df["Volume"].astype(float)
+            df["DateTime"] = pd.to_datetime(
+                df["Date"].str.replace(" US/Eastern", "", regex=False)
+            )
+            df["DateOnly"] = df["DateTime"].dt.date
 
-            df_vwap = df.groupby('DateOnly').apply(compute_daily_vwap).reset_index(drop=True)
-            df = df.merge(df_vwap, on='DateTime', how='left')
+            df_vwap = (
+                df.groupby("DateOnly").apply(compute_daily_vwap).reset_index(drop=True)
+            )
+            df = df.merge(df_vwap, on="DateTime", how="left")
 
             # df['Green'] = df['Close'] > df['Open']
             # df['StrongMomentum'] = (
             #     df['Green'].shift(1).fillna(False) &
             #     df['Green'].shift(2).fillna(False) &
             #     df['Green'].shift(3).fillna(False) &
-            #     (df['High'].shift(1) > df['High'].shift(2)) & 
+            #     (df['High'].shift(1) > df['High'].shift(2)) &
             #     (df['High'].shift(2) > df['High'].shift(3))
             # )
 
@@ -189,49 +200,57 @@ def backtest(
             # df['Momentum'] = df['StrongMomentum'] & ((df['High'] - df['Low']) > 0.4 * df['ATR'])
 
             # df['Pullback'] = (
-            #     (df['Close'] < df['Close'].shift(1)) & 
+            #     (df['Close'] < df['Close'].shift(1)) &
             #     ((df['Close'].shift(1) - df['Close']) / df['Close'].shift(1) <= 0.02)
             # )
             # df['PullbackAboveVWAP'] = df['Pullback'] & (df['Low'] > df['VWAP'])
 
-            df['AverageVolume'] = df['Volume'].rolling(window=80).mean()
-            df['RelativeVolume'] = df['Volume'] / df['AverageVolume']
+            df["AverageVolume"] = df["Volume"].rolling(window=80).mean()
+            df["RelativeVolume"] = df["Volume"] / df["AverageVolume"]
             # df['Close_to_VWAP'] = df['Close'] / df['VWAP']
             # df['NotExtended'] = df['Close_to_VWAP'] < 5
 
             # df['VWAP_Reclaim'] = (df['Low'] > df['VWAP']) & (df['Close'] > df['VWAP'])
-            df['VolumeSpike'] = (df['RelativeVolume'] > 5) & (df['Volume'] > 15000)
+            df["VolumeSpike"] = (df["RelativeVolume"] > 5) & (df["Volume"] > 15000)
 
             # df['MicroPullback'] = (
             #     df['StrongMomentum'] &
             #     df['Pullback'] &
             #     df['VolumeSpike']
             # )
-            df_micro_pullback = compute_micro_pullback(df, atr_window=15, volume_window=80, rel_volume_thresh=5, vol_thresh=15000, max_pullback_pct=0.02)
-            df = df.merge(df_micro_pullback, on='DateTime', how='left')
-            df['MicroPullback'] = df['MicroPullback'].fillna(False) 
+            df_micro_pullback = compute_micro_pullback(
+                df,
+                atr_window=15,
+                volume_window=80,
+                rel_volume_thresh=5,
+                vol_thresh=15000,
+                max_pullback_pct=0.02,
+            )
+            df = df.merge(df_micro_pullback, on="DateTime", how="left")
+            df["MicroPullback"] = df["MicroPullback"].fillna(False)
 
             def increasing_trend_with_one_small_red(df):
-                small_reds = ((df['Close'] < df['Open']) & 
-                            (abs(df['Open'] - df['Close']) / df['Open'] < 0.008))
+                small_reds = (df["Close"] < df["Open"]) & (
+                    abs(df["Open"] - df["Close"]) / df["Open"] < 0.008
+                )
                 return small_reds.rolling(window=5).sum().shift(1) <= 1
 
-            df['AllowTrend'] = increasing_trend_with_one_small_red(df)
+            df["AllowTrend"] = increasing_trend_with_one_small_red(df)
             # 3. Breakout Candle Strength
-            df['Body'] = abs(df['Close'] - df['Open'])
-            df['Range'] = df['High'] - df['Low']
-            df['StrongBreakoutCandle'] = (df['Body'] / df['Range']) > 0.8
+            df["Body"] = abs(df["Close"] - df["Open"])
+            df["Range"] = df["High"] - df["Low"]
+            df["StrongBreakoutCandle"] = (df["Body"] / df["Range"]) > 0.8
 
             # 4. ATR Filter
-            df['ATR'] = (df['High'] - df['Low']).rolling(window=10).mean()
-            df['SufficientVolatility'] = df['ATR'] > df['ATR'].median()
-            df['PrevHigh5'] = df['High'].rolling(window=5).max().shift(1)
+            df["ATR"] = (df["High"] - df["Low"]).rolling(window=10).mean()
+            df["SufficientVolatility"] = df["ATR"] > df["ATR"].median()
+            df["PrevHigh5"] = df["High"].rolling(window=5).max().shift(1)
             # 5. Final Breakout Condition with all filters
             BREAKOUT_MULTIPLIER = 1.0
             VWAP_MULTIPLIER = 1.08
             df_break_out = compute_breakout_signal(df)
-            df = df.merge(df_break_out, on='DateTime', how='left')
-            df['Breakout'] = df['Breakout'].fillna(False) & df['VolumeSpike']
+            df = df.merge(df_break_out, on="DateTime", how="left")
+            df["Breakout"] = df["Breakout"].fillna(False) & df["VolumeSpike"]
             # df['Breakout'] = (
             #     (df['Close'] > df['PrevHigh5'] * BREAKOUT_MULTIPLIER) &
             #     df['VolumeSpike'] &
@@ -243,20 +262,20 @@ def backtest(
             # )
             # df['PrevHigh5'] = df['High'].rolling(window=4).max().shift(1)
             # df['Breakout'] = (
-            #     (df['Close'] > df['PrevHigh5']) & 
+            #     (df['Close'] > df['PrevHigh5']) &
             #     df['VolumeSpike'] &
             #     (df['Close'] > 1.15 * df['VWAP']) &
             #     df['AllowTrend']
             # )
 
             df_stoch_boll = compute_stochastic_bollinger_band(df)
-            df = df.merge(df_stoch_boll, on='DateTime', how='left')
-            df['StochasticBollinger'] = df['StochBollingerEntry'].fillna(False)
-            
+            df = df.merge(df_stoch_boll, on="DateTime", how="left")
+            df["StochasticBollinger"] = df["StochBollingerEntry"].fillna(False)
+
             # === Profit Hunter ===
             df_profit = compute_profit_hunter_signals(df)
-            df = df.merge(df_profit, on='DateTime', how='left')
-            df['ProfitHunter'] = df['ProfitHunter'].fillna(False)
+            df = df.merge(df_profit, on="DateTime", how="left")
+            df["ProfitHunter"] = df["ProfitHunter"].fillna(False)
             # === Micro Pullback V2 ===
             # df['VWAP_Diff'] = df['VWAP'] - df['Close']
             # df['VWAP_GapTrend'] = df['VWAP_Diff'].rolling(window=3).apply(lambda x: all(earlier > later for earlier, later in zip(x, x[1:])), raw=True)
@@ -305,12 +324,10 @@ def backtest(
             #     df['NotExtended']
             # )
             df_ema = compute_micro_pullback_ema_strategy(
-                df, 
-                threshold=0.0003, 
-                volume_spike_factor=2
+                df, threshold=0.0003, volume_spike_factor=2
             )
-            df = df.merge(df_ema , on='DateTime', how='left')
-            df['EMABuySignal'] = df['EMABuySignal'].fillna(False)
+            df = df.merge(df_ema, on="DateTime", how="left")
+            df["EMABuySignal"] = df["EMABuySignal"].fillna(False)
             df.dropna(inplace=True)
 
             in_position = False
@@ -322,7 +339,7 @@ def backtest(
                 close_price = row["Close"]
 
                 if not in_position:
-                    if row['EMABuySignal']:
+                    if row["EMABuySignal"]:
                         entry_type = "EMA"
                         stop_loss_pct = 0.03
                         target_pct = 0.06
@@ -338,7 +355,7 @@ def backtest(
                         entry_type = "StochasticBollinger"
                         stop_loss_pct = 0.03
                         target_pct = 0.05
-                        
+
                     else:
                         continue
 
@@ -346,19 +363,23 @@ def backtest(
                     stop_loss = entry_price * (1 - stop_loss_pct)
                     target_price = entry_price * (1 + target_pct)
                     buy_date = row["Date"]
-                    transactions[reqID].append((buy_date,'BUY', ticker, entry_price, entry_type))
+                    transactions[reqID].append(
+                        (buy_date, "BUY", ticker, entry_price, entry_type)
+                    )
                     in_position = True
 
                 else:
                     if close_price >= target_price or close_price <= stop_loss:
                         exit_price = close_price
                         sell_date = row["Date"]
-                        transactions[reqID].append((sell_date,'SELL', ticker,exit_price, entry_type))
+                        transactions[reqID].append(
+                            (sell_date, "SELL", ticker, exit_price, entry_type)
+                        )
                         date_stats[date][ticker] = {
                             "return": (exit_price - entry_price) / entry_price,
                             "buy_date": buy_date,
                             "sell_date": sell_date,
-                            "type": entry_type
+                            "type": entry_type,
                         }
 
                         in_position = False
