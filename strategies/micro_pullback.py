@@ -1,91 +1,59 @@
-from data.data_fetcher import histData, usTechStk
 import pandas as pd
-from typing import Dict, List, Tuple
-import threading
 
-
-def backtest(
-    selected_stocks: Dict[str, List[str]], 
-    app, 
-    ticker_event: threading.Event
-) -> Tuple[Dict[str, Dict[str, Dict[str, float]]], List[Tuple[str, str, str, float]]]:
+def compute_micro_pullback(df: pd.DataFrame, atr_window=15, volume_window=80, rel_volume_thresh=5, vol_thresh=15000, max_pullback_pct=0.015):
     """
-    Backtest a micro pullback strategy with strict trade closure before a new one starts.
-    """
-
-    date_stats = {}
-    transactions = []
-    reqID = 1000
+    Identifies Micro Pullback patterns in the provided DataFrame.
     
-    for date in selected_stocks.keys():
-        date_stats[date] = {}
-        for ticker in selected_stocks[date]:
-            ticker_event.clear()  # Clear event before request
-            histData(app, reqID, usTechStk(ticker), date + " 22:05:00 US/Eastern", '10 D', '1 min')
-            ticker_event.wait()  # Wait for data retrieval
+    Parameters:
+        df (pd.DataFrame): DataFrame with 'Open', 'High', 'Low', 'Close', 'Volume', and 'VWAP' columns.
+        atr_window (int): Rolling window for ATR calculation.
+        volume_window (int): Rolling window for average volume.
+        rel_volume_thresh (float): Relative volume threshold to detect volume spike.
+        vol_thresh (int): Minimum absolute volume threshold.
+        max_pullback_pct (float): Maximum % pullback for valid pullback detection.
+    
+    Returns:
+        pd.DataFrame: Original DataFrame with extra columns indicating pattern detections.
+    """
 
-            if reqID not in app.data or app.data[reqID].empty:
-                print(f"Warning: No data for {ticker} on {date}")
-                continue
-            
-            df = app.data[reqID].copy()
-            df['Volume'] = df['Volume'].astype(float)  # Ensure all volume values are float
+    df = df.copy()
+    
+    # Momentum check
+    df['Green'] = df['Close'] > df['Open']
+    df['StrongMomentum'] = (
+        df['Green'].shift(1).fillna(False) &
+        df['Green'].shift(2).fillna(False) &
+        df['Green'].shift(3).fillna(False) &
+        (df['High'].shift(1) > df['High'].shift(2)) & 
+        (df['High'].shift(2) > df['High'].shift(3))
+    )
 
-            df['Green'] = df['Close'] > df['Open']
-            df['Momentum'] = df['Green'] & df['Green'].shift(1) & df['Green'].shift(2)
-            df['Pullback'] = df['Close'] < df['Close'].shift(1)
+    # ATR and momentum confirmation
+    df['ATR'] = df['High'].rolling(atr_window).max() - df['Low'].rolling(atr_window).min()
+    df['Momentum'] = df['StrongMomentum'] & ((df['High'] - df['Low']) > 0.4 * df['ATR'])
 
-            df['Typical_Price'] = (df['High'] + df['Low'] + df['Close']) / 3
-            df['Cumulative_PV'] = (df['Typical_Price'] * df['Volume']).cumsum()
-            df['Cumulative_Volume'] = df['Volume'].cumsum()
-            df['VWAP'] = df['Cumulative_PV'] / df['Cumulative_Volume']
+    # Pullback logic
+    df['Pullback'] = (
+        (df['Close'] < df['Close'].shift(1)) & 
+        ((df['Close'].shift(1) - df['Close']) / df['Close'].shift(1) <= max_pullback_pct)
+    )
+    df['PullbackAboveVWAP'] = df['Pullback'] & (df['Low'] > df['VWAP'])
 
-            df['PullbackAboveVWAP'] = df['Pullback'] & (df['Low'] > df['VWAP'])
-            df['AverageVolume'] = df['Volume'].rolling(window=200).mean()
+    # Volume filters
+    df['AverageVolume'] = df['Volume'].rolling(window=volume_window).mean()
+    df['RelativeVolume'] = df['Volume'] / df['AverageVolume']
+    df['Close_to_VWAP'] = df['Close'] / df['VWAP']
+    df['NotExtended'] = df['Close_to_VWAP'] < 5
 
-            df['Extended'] = df['Close'] > df['VWAP'] * 1.03
-            df['VolumeSpike'] = df['Volume'] > df['AverageVolume'] * 1.5
-            df['MicroPullback'] = df['Momentum'].shift(1) & df['PullbackAboveVWAP'] & df['VolumeSpike'] & df['Extended']
+    # VWAP reclaim and spike
+    df['VWAP_Reclaim'] = (df['Low'] > df['VWAP']) & (df['Close'] > df['VWAP'])
+    df['VolumeSpike'] = (df['RelativeVolume'] > rel_volume_thresh) & (df['Volume'] > vol_thresh)
 
-            df.dropna(inplace=True)
+    # Final micro pullback signal
+    df['MicroPullback'] = (
+        df['StrongMomentum'] &
+        df['Pullback'] &
+        df['VolumeSpike']
+    )
 
-            in_position = False  # Track if a trade is open
-            entry_price, stop_loss, target_price = None, None, None
-            buy_date, sell_date = None, None
-
-            for i in range(len(df)):
-                close_price = df.iloc[i]["Close"]
-
-                # **Entry Condition**: Check if no position is open
-                if not in_position and df.iloc[i]["MicroPullback"]:
-                    entry_price = close_price
-                    stop_loss = entry_price * 0.98  # 2% Stop Loss
-                    target_price = entry_price * 1.02  # 2% Take Profit
-                    buy_date = df.iloc[i]["Date"]
-
-                    transactions.append((buy_date, ticker, 'BUY', entry_price))
-                    in_position = True  # Mark position as open
-
-                # **Exit Conditions**: Close trade before opening a new one
-                if in_position:
-                    if close_price >= target_price or close_price <= stop_loss:
-                        exit_price = close_price
-                        sell_date = df.iloc[i]["Date"]
-                        transactions.append((sell_date, ticker, 'SELL', exit_price))
-
-                        # **Record trade stats**
-                        date_stats[date][ticker] = {
-                            "return": (exit_price - entry_price) / entry_price,
-                            "buy_date": buy_date,
-                            "sell_date": sell_date
-                        }
-
-                        # Reset trade state before a new one can start
-                        in_position = False
-                        entry_price, stop_loss, target_price = None, None, None
-                        buy_date, sell_date = None, None
-
-            app.data[reqID] = df  # Store processed DataFrame
-            reqID += 1
-
-    return date_stats, transactions
+    return df[["MicroPullback", "DateTime"]]

@@ -1,67 +1,74 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Tuple
+import ta
+from typing import Optional
 
-def compute_stochastic_bollinger_band(data: pd.DataFrame) -> pd.DataFrame:
+def compute_stochastic_bollinger_band(
+    data: pd.DataFrame,
+    volume_multiplier: float = 1.5,
+    bb_width_threshold: float = 0.015,
+    adx_threshold: float = 20,
+    rsi_threshold: float = 30,
+    atr_multiplier: float = 1.0
+) -> pd.DataFrame:
     data = data.copy()
 
     # ====== Technical Indicators ======
-    # Stochastic Oscillator
     high_14 = data['High'].rolling(window=14).max()
     low_14 = data['Low'].rolling(window=14).min()
     data['%K'] = 100 * ((data['Close'] - low_14) / (high_14 - low_14))
     data['%D'] = data['%K'].rolling(window=3).mean()
 
-    # Bollinger Bands
     data['MA20'] = data['Close'].rolling(window=20).mean()
     data['STD20'] = data['Close'].rolling(window=20).std()
     data['UpperBB'] = data['MA20'] + 2 * data['STD20']
     data['LowerBB'] = data['MA20'] - 2 * data['STD20']
-    data['BB_Width'] = (data['UpperBB'] - data['LowerBB']) / data['MA20']  # relative BB width
+    data['BB_Width'] = (data['UpperBB'] - data['LowerBB']) / data['MA20']
 
-    # RSI
     data['RSI'] = ta.momentum.RSIIndicator(data['Close'], window=14).rsi()
-
-    # ADX
     adx = ta.trend.ADXIndicator(data['High'], data['Low'], data['Close'], window=14)
     data['ADX'] = adx.adx()
+    atr = ta.volatility.AverageTrueRange(data['High'], data['Low'], data['Close'], window=14)
+    data['ATR'] = atr.average_true_range()
+    data['ATR_avg'] = data['ATR'].rolling(window=20).mean()
 
-    # Volume Spike
     data['avg_volume'] = data['Volume'].rolling(window=20).mean()
-    data['volume_spike'] = data['Volume'] > 1.5 * data['avg_volume']
+    data['volume_spike'] = data['Volume'] > volume_multiplier * data['avg_volume']
 
-    # ====== Entry Conditions ======
-
-    # %K crosses above 20 AND is accelerating upward
-    data['StochCross'] = (data['%K'] > 20) & (data['%K'].shift(1) <= 20) & (data['%K'] > data['%K'].shift(1))
-
-    # Bollinger recovery + band width not too narrow
-    data['BB_Reversal'] = (data['Close'] > data['LowerBB']) & (data['BB_Width'] > 0.015)
-
-    # Confirmed uptrend (price above 20-MA)
-    data['Trend_OK'] = data['Close'] > data['MA20']
-
-    # RSI above momentum threshold
-    data['RSI_OK'] = data['RSI'] > 50
-
-    # Trend strength using ADX
-    data['StrongTrend'] = data['ADX'] > 20
-
-    # Bullish candle confirmation (close near high AND strong body)
+    # ====== Candlestick Features ======
     candle_range = data['High'] - data['Low']
     candle_body = abs(data['Close'] - data['Open'])
     data['BullishCandle'] = (data['Close'] > data['Open']) & \
                             ((data['Close'] - data['Low']) > 0.6 * candle_range) & \
                             (candle_body > 0.5 * candle_range)
 
-    # Final signal
+    # ====== Entry Conditions ======
+    data['StochCross'] = (
+        (data['%K'] > data['%D']) &
+        (data['%K'].shift(1) <= data['%D'].shift(1)) &
+        (data['%K'] > data['%K'].shift(1))
+    )
+
+    data['BB_Reversal'] = (
+        (data['Close'].shift(1) < data['LowerBB'].shift(1)) &
+        (data['Close'] > data['LowerBB']) &
+        (data['BB_Width'] > bb_width_threshold)
+    )
+
+    data['BreakPrevHigh'] = data['Close'] > data['High'].shift(1)
+
+    data['RSI_OK'] = data['RSI'] < rsi_threshold
+    data['StrongTrend'] = data['ADX'] > adx_threshold
+    data['Volatility_OK'] = data['ATR'] > atr_multiplier * data['ATR_avg']
+
     data['StochBollingerEntry'] = (
         data['StochCross'] &
         data['BB_Reversal'] &
         data['volume_spike'] &
         data['RSI_OK'] &
-        data['Trend_OK'] &
+        data['BreakPrevHigh'] &
         data['StrongTrend'] &
+        data['Volatility_OK'] &
         data['BullishCandle']
     )
 
